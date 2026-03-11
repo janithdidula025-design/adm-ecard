@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="si">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+    <title>ADM Digital E-Card </title>
+    <meta property="og:title" content="ADM Digital E-Card">
+    <meta property="og:description" content="Organizer / Manager - ADM Higher Education Institute">
+    <meta property="og:image" content="https://raw.githubusercontent.com/janithdidula025-design/adm-ecard/main/logo.jpg"> 
+    <meta property="og:type" content="website">
+
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <meta name="apple-mobile-web-app-title" content="ADM Card">
+
+    <style>
+        :root {
+            --primary: #0d237d;
+            --accent: #50e3c2;
+            --dark: #050811;
+            --glass: rgba(255, 255, 255, 0.08);
+        }
+
+        body {
+            margin: 0; padding: 20px 0;
+            font-family: 'Segoe UI', sans-serif;
+            background: radial-gradient(circle at top, #0d237d 0%, var(--dark) 95%);
+            color: white; display: flex; flex-direction: column; align-items: center; min-height: 100vh;
+        }
+
+        /* --- LANGUAGE SWITCHER --- */
+        .lang-switcher {
+            display: flex; gap: 10px; margin-bottom: 20px; background: var(--glass);
+            padding: 5px; border-radius: 30px; border: 1px solid rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+        }
+        .lang-btn {
+            padding: 8px 15px; border-radius: 20px; border: none; background: none;
+            color: white; cursor: pointer; font-size: 0.8rem; transition: 0.3s;
+        }
+        .lang-btn.active { background: var(--accent); color: var(--primary); font-weight: bold; }
+
+        /* --- ADMIN PANEL (HIDDEN BY DEFAULT) --- */
+        .settings-panel {
+            position: fixed; right: -350px; top: 0; width: 300px; height: 100%;
+            background: rgba(5, 8, 17, 0.98); backdrop-filter: blur(20px);
+            z-index: 2000; transition: 0.5s; padding: 20px 10px; border-left: 2px solid var(--accent);
+            overflow-y: auto; display: none;
+        }
+        .settings-panel.open { right: 0; display: block; }
+        .admin-input { width: 92%; padding: 10px; margin: 5px 0; border-radius: 8px; border: 1px solid #333; background: #000; color: #fff; }
+
+        /* --- CARD UI --- */
+        .app-container {
+            width: 90%; max-width: 380px; background: var(--glass);
+            padding: 30px 15px; border-radius: 45px; border: 1px solid rgba(255, 255, 255, 0.12);
+            backdrop-filter: blur(25px); text-align: center; position: relative;
+        }
+
+        .profile-wrapper { position: relative; width: 130px; height: 130px; margin: 0 auto 15px; }
+        .profile-img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; border: 3px solid var(--accent); }
+        
+        .photo-edit-btn { 
+            position: absolute; bottom: 5px; right: 5px; background: var(--accent); 
+            color: var(--primary); width: 35px; height: 35px; border-radius: 50%; 
+            display: none; align-items: center; justify-content: center; cursor: pointer; border: 2px solid var(--primary); font-weight: bold;
+        }
+
+        .inst-name { font-size: 1.1rem; color: var(--accent); font-weight: bold; margin-bottom: 5px; }
+        .user-name { font-size: 1.7rem; font-weight: 800; margin-bottom: 5px; cursor: pointer; }
+        .user-role { font-size: 0.8rem; opacity: 0.8; letter-spacing: 1px; margin-bottom: 20px; }
+
+        .contact-info { margin-bottom: 20px; font-size: 0.9rem; color: #ccc; line-height: 1.6; }
+
+        .main-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px; }
+        .btn { padding: 16px; border-radius: 20px; border: none; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; text-decoration: none; font-size: 0.9rem; transition: 0.3s; text-align: center;}
+        .btn-white { background: #fff; color: var(--primary); }
+        .btn-green { background: #25D366; color: #fff; }
+        .btn-blue { background: #007bff; color: #fff; grid-column: span 2; margin-top: 10px; }
+        
+        .btn-admin { grid-column: span 2; display: none; background: linear-gradient(135deg, #ff4757, #ff6b81); color: #fff; border: 1px solid white; margin-top: 15px; }
+
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 3000; align-items: center; justify-content: center; }
+        .modal-content { background: #12182b; padding: 25px; border-radius: 30px; width: 85%; max-width: 320px; border: 1px solid var(--accent); text-align: center; }
+
+        #lockMessage { display:none; color: #ff4757; font-weight: bold; margin-top: 20px; }
+        .send-counter { font-size: 0.7rem; color: #888; margin-top: 10px; border-top: 1px solid #333; padding-top: 10px; }
+    </style>
+</head>
+<body>
+
+    <div class="lang-switcher">
+        <button onclick="setLanguage('si')" id="btn-si" class="lang-btn">සිංහල</button>
+        <button onclick="setLanguage('ta')" id="btn-ta" class="lang-btn">தமிழ்</button>
+        <button onclick="setLanguage('en')" id="btn-en" class="lang-btn">English</button>
+    </div>
+
+    <div class="settings-panel" id="adminPanel">
+        <h3 id="admin-title">ADM EDITOR</h3>
+        <label id="label-email">Email Address:</label>
+        <input type="text" id="inEmail" class="admin-input" placeholder="example@gmail.com">
+        
+        <div class="send-counter">
+            TOTAL SENDS: <span id="countDisplay">0</span> / 5000
+        </div>
+
+        <button onclick="saveAdminSettings()" style="width: 100%; padding: 15px; background: var(--accent); border: none; border-radius: 12px; font-weight: bold; margin-top: 15px; cursor: pointer;">SAVE ALL SETTINGS</button>
+        <button onclick="logoutAdmin()" style="width: 100%; margin-top: 20px; background: none; border: 1px solid #ff4757; color: #ff4757; padding: 10px; border-radius: 10px; cursor: pointer;">LOGOUT ADMIN</button>
+    </div>
+
+    <div class="app-container">
+        <div class="profile-wrapper">
+            <img id="displayImg" src="https://via.placeholder.com/150/0d237d/ffffff?text=ADM" class="profile-img">
+            <label for="uploadImg" id="photoEditBtn" class="photo-edit-btn">✎</label>
+            <input type="file" id="uploadImg" style="display:none" accept="image/*" onchange="updatePhoto(event)">
+        </div>
+        
+        <div id="txt-inst" class="inst-name">ADM උසස් අධ්‍යාපන ආයතනය</div>
+        <div class="user-name" onclick="handleSecretTap()">JANITH DIDULA</div>
+        <div id="txt-role" class="user-role">Organizer / Manager</div>
+
+        <div class="contact-info">
+            <span id="txt-address">📍  මීගමුව පාර, නාරම්මල</span><br>
+            📧 <span id="displayEmail">adm.education@gmail.com</span>
+        </div>
+
+        <div class="main-actions">
+            <a href="tel:0710658051" id="btn-call" class="btn btn-white">📞 CALL NOW</a>
+            <a href="https://wa.me/94710658051" id="btn-wa" class="btn btn-green">💬 WHATSAPP</a>
+            <button id="btn-save-vcf" onclick="downloadVCF()" class="btn btn-blue">👤 SAVE CONTACT TO PHONE</button>
+            <button id="adminSendBtn" class="btn btn-admin" onclick="openSendModal()">📲 SEND TO CUSTOMER</button>
+        </div>
+
+        <div style="background: white; padding: 8px; border-radius: 15px; width: 80px; height: 80px; margin: 25px auto;">
+            <img id="qr-code" src="" style="width: 100%;">
+        </div>
+    </div>
+
+    <div id="sendModal" class="modal">
+        <div class="modal-content">
+            <h3 id="modal-title">Send to Customer</h3>
+            <p id="modal-desc">Enter customer number</p>
+            <input type="tel" id="custNumber" class="admin-input" style="text-align: center; font-size: 1.3rem;" placeholder="07XXXXXXXX">
+            
+            <div id="sendActions">
+                <button id="btn-send-wa" class="btn btn-green" style="width: 100%; margin-top: 15px;" onclick="sendVia('whatsapp')">SEND VIA WHATSAPP</button>
+                <button id="btn-send-sms" class="btn btn-white" style="width: 100%; margin-top: 10px;" onclick="sendVia('sms')">SEND VIA SMS</button>
+            </div>
+            
+            <div id="lockMessage">
+                🚫 SEND LIMIT REACHED (5000/5000). SYSTEM LOCKED!
+            </div>
+
+            <button onclick="closeModal()" style="background: none; border: none; color: #ccc; width: 100%; margin-top: 20px; cursor: pointer;">CLOSE</button>
+        </div>
+    </div>
+
+    <script>
+        const GITHUB_URL = "https://janithdidula025-design.github.io/adm-ecard/";
+        const MAX_SENDS = 5000;
+        let tapCount = 0, tapTimer;
+
+        // --- ADMIN ACCESS (Double Tap on Name) ---
+        function handleSecretTap() {
+            tapCount++; clearTimeout(tapTimer);
+            if (tapCount === 2) {
+                localStorage.setItem('is_adm', 'true');
+                showAdminUI();
+                document.getElementById('adminPanel').classList.add('open');
+            }
+            tapTimer = setTimeout(() => tapCount = 0, 400);
+        }
+
+        function showAdminUI() {
+            const isAdm = localStorage.getItem('is_adm') === 'true';
+            document.getElementById('adminSendBtn').style.display = isAdm ? 'flex' : 'none';
+            document.getElementById('photoEditBtn').style.display = isAdm ? 'flex' : 'none';
+            
+            const panel = document.getElementById('adminPanel');
+            if(isAdm) {
+                panel.style.display = 'block';
+                const currentSends = parseInt(localStorage.getItem('adm_send_count') || 0);
+                document.getElementById('countDisplay').innerText = currentSends;
+            } else {
+                panel.style.display = 'none';
+            }
+        }
+
+        // --- ATTRACTIVE MESSAGE LOGIC ---
+        function sendVia(method) {
+            let count = parseInt(localStorage.getItem('adm_send_count') || 0);
+            if (count >= MAX_SENDS) { checkLockStatus(); return; }
+
+            let num = document.getElementById('custNumber').value;
+            if(!num) { alert("Please enter a number!"); return; }
+            
+            count++;
+            localStorage.setItem('adm_send_count', count);
+            document.getElementById('countDisplay').innerText = count;
+
+            // පණිවිඩය (The Attractive Message)
+            const msg = `ආයුබෝවන්! 👋\n\n` +
+                        `මෙන්න *ADM Higher Education - Narammala* ආයතනයේ Digital Business Card එක.\n\n` +
+                        `පහත ලින්ක් එක ක්ලික් කර ඔබගේ දුරකථනයේ App එකක් ලෙස සේව් කරගන්න.\n\n` +
+                        `🌐 Link: ${GITHUB_URL}`;
+
+            const fullMsg = encodeURIComponent(msg);
+            let formattedNum = num.startsWith('0') ? '94' + num.substring(1) : num;
+
+            if(method === 'whatsapp') window.open(`https://wa.me/${formattedNum}?text=${fullMsg}`);
+            else window.open(`sms:${num}?body=${fullMsg}`);
+            
+            checkLockStatus();
+        }
+
+        function checkLockStatus() {
+            const currentSends = parseInt(localStorage.getItem('adm_send_count') || 0);
+            if (currentSends >= MAX_SENDS) {
+                document.getElementById('sendActions').style.display = 'none';
+                document.getElementById('lockMessage').style.display = 'block';
+            }
+        }
+
+        // --- LANGUAGES ---
+        const translations = {
+            si: { inst: "ADM උසස් අධ්‍යාපන ආයතනය", role: "සංවිධායක / කළමනාකරු", address: "📍 නාරම්මල, මීගමුව පාර", call: "📞 දැන් අමතන්න", wa: "💬 වට්ස්ඇප්", saveVcf: "👤 සම්බන්ධතාව සුරකින්න", sendCust: "📲 පාරිභෝගිකයාට යවන්න", adminTitle: "ADM සංස්කාරක", emailLabel: "ඊමේල් ලිපිනය:", modTitle: "පාරිභෝගිකයාට යවන්න", modDesc: "දුරකථන අංකය ඇතුළත් කරන්න", sendViaWa: "WHATSAPP මගින් යවන්න", sendViaSms: "SMS මගින් යවන්න" },
+            ta: { inst: "ADM உயர்கல்வி நிறுவனம்", role: "ஏற்பாட்டாளர் / மேலாளர்", address: "📍 நாரம்மல, நீர்கொழும்பு வீதி", call: "📞 இப்பொழுது அழைக்க", wa: "💬 வாட்ஸ்அப்", saveVcf: "👤 தொடர்பைச் சேமிக்கவும்", sendCust: "📲 வாடிக்கையாளருக்கு அனுப்ப", adminTitle: "ADM திருத்தி", emailLabel: "மின்னஞ்சல் முகவரி:", modTitle: "வாடிக்கையாளருக்கு அனுப்ப", modDesc: "தொலைபேசி எண்ணை உள்ளிடவும்", sendViaWa: "WHATSAPP மூலம் அனுப்பவும்", sendViaSms: "SMS மூலம் அனுப்பவும்" },
+            en: { inst: "ADM Higher Education Institute", role: "Organizer / Manager", address: "📍 Narammala, Negombo Road", call: "📞 CALL NOW", wa: "💬 WHATSAPP", saveVcf: "👤 SAVE CONTACT TO PHONE", sendCust: "📲 SEND TO CUSTOMER", adminTitle: "ADM EDITOR", emailLabel: "Email Address:", modTitle: "Send to Customer", modDesc: "Enter customer number", sendViaWa: "SEND VIA WHATSAPP", sendViaSms: "SEND VIA SMS" }
+        };
+
+        function setLanguage(lang) {
+            localStorage.setItem('adm_lang', lang);
+            document.getElementById('txt-inst').innerText = translations[lang].inst;
+            document.getElementById('txt-role').innerText = translations[lang].role;
+            document.getElementById('txt-address').innerText = translations[lang].address;
+            document.getElementById('btn-call').innerText = translations[lang].call;
+            document.getElementById('btn-wa').innerText = translations[lang].wa;
+            document.getElementById('btn-save-vcf').innerText = translations[lang].saveVcf;
+            document.getElementById('adminSendBtn').innerText = translations[lang].sendCust;
+            document.getElementById('admin-title').innerText = translations[lang].adminTitle;
+            document.getElementById('label-email').innerText = translations[lang].emailLabel;
+            document.getElementById('modal-title').innerText = translations[lang].modTitle;
+            document.getElementById('modal-desc').innerText = translations[lang].modDesc;
+            document.getElementById('btn-send-wa').innerText = translations[lang].sendViaWa;
+            document.getElementById('btn-send-sms').innerText = translations[lang].sendViaSms;
+            document.querySelectorAll('.lang-btn').forEach(btn => btn.classList.remove('active'));
+            document.getElementById('btn-' + lang).classList.add('active');
+        }
+
+        // --- HELPERS ---
+        function openSendModal() { document.getElementById('sendModal').style.display = 'flex'; checkLockStatus(); }
+        function closeModal() { document.getElementById('sendModal').style.display = 'none'; }
+
+        function updatePhoto(e) {
+            const file = e.target.files[0];
+            if(file) {
+                const r = new FileReader();
+                r.onload = (ex) => {
+                    localStorage.setItem('adm_logo', ex.target.result);
+                    document.getElementById('displayImg').src = ex.target.result;
+                };
+                r.readAsDataURL(file);
+            }
+        }
+
+        function downloadVCF() {
+            const vcf = `BEGIN:VCARD\nVERSION:3.0\nFN:Janith Didula (ADM)\nTEL;TYPE=CELL:0710658051\nEND:VCARD`;
+            const b = new Blob([vcf], { type: 'text/vcard' });
+            const u = window.URL.createObjectURL(b);
+            const a = document.createElement('a'); a.href = u; a.download = 'Janith_ADM.vcf'; a.click();
+        }
+
+        function saveAdminSettings() {
+            localStorage.setItem('adm_email', document.getElementById('inEmail').value);
+            location.reload();
+        }
+
+        function logoutAdmin() { localStorage.removeItem('is_adm'); location.reload(); }
+
+        window.onload = () => {
+            const currentLang = localStorage.getItem('adm_lang') || 'si';
+            setLanguage(currentLang);
+            showAdminUI();
+            const email = localStorage.getItem('adm_email');
+            if(email) {
+                document.getElementById('displayEmail').innerText = email;
+                document.getElementById('inEmail').value = email;
+            }
+            if(localStorage.getItem('adm_logo')) document.getElementById('displayImg').src = localStorage.getItem('adm_logo');
+            document.getElementById('qr-code').src = `https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(GITHUB_URL)}`;
+        };
+    </script>
+</body>
+</html>

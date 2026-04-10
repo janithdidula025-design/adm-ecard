@@ -1,46 +1,1434 @@
-const CACHE_NAME = "adm-cms-cache-v3";
-const APP_SHELL = [
-  "./",
-  "./index.html",
-  "./sw.js",
-];
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#020617" />
+  <title>Class Management System</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL))
-  );
-  self.skipWaiting();
-});
+  <style>
+    html, body {
+      height: 100%;
+    }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+  </style>
+</head>
+<body class="bg-slate-950">
+  <div id="root"></div>
 
-self.addEventListener("activate", (event) => {
-  event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(
-        keys
-          .filter((key) => key !== CACHE_NAME)
-          .map((key) => caches.delete(key))
-      )
-    )
-  );
-  self.clients.claim();
-});
+  <script type="text/babel">
+    const { useEffect, useMemo, useState } = React;
 
-self.addEventListener("fetch", (event) => {
-  if (event.request.method !== "GET") return;
+    const LS_KEYS = {
+      students: "adm_students_v3",
+      teachers: "adm_teachers_v3",
+      classes: "adm_classes_v3",
+      attendance: "adm_attendance_v3",
+      fees: "adm_fees_v3",
+      users: "adm_users_v3",
+      session: "adm_session_v3",
+    };
 
-  event.respondWith(
-    caches.match(event.request).then((cached) => {
-      if (cached) return cached;
+    const defaultUsers = [
+      { username: "admin", password: "1234", role: "admin", name: "Main Admin" },
+      { username: "admin2", password: "1234", role: "admin", name: "Admin 2" },
+      { username: "teacher", password: "1234", role: "teacher", name: "Teacher" },
+    ];
 
-      return fetch(event.request)
-        .then((response) => {
-          const responseClone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseClone);
+    const defaultSession = {
+      loggedIn: false,
+      username: "",
+      role: "",
+      name: "",
+    };
+
+    const emptyStudent = {
+      id: "",
+      name: "",
+      grade: "",
+      phone: "",
+      address: "",
+      guardian: "",
+      classId: "",
+      photo: "",
+    };
+
+    const emptyTeacher = {
+      id: "",
+      name: "",
+      subject: "",
+      phone: "",
+      email: "",
+    };
+
+    const emptyClass = {
+      id: "",
+      name: "",
+      grade: "",
+      teacherId: "",
+      schedule: "",
+      room: "",
+    };
+
+    const emptyUser = {
+      id: "",
+      username: "",
+      password: "",
+      role: "teacher",
+      name: "",
+    };
+
+    function uid(prefix = "ID") {
+      return `${prefix}-${Math.random().toString(36).slice(2, 7).toUpperCase()}-${Date.now().toString().slice(-4)}`;
+    }
+
+    function safeParse(key, fallback) {
+      try {
+        const raw = localStorage.getItem(key);
+        return raw ? JSON.parse(raw) : fallback;
+      } catch {
+        return fallback;
+      }
+    }
+
+    function saveLS(key, value) {
+      try {
+        localStorage.setItem(key, JSON.stringify(value));
+      } catch (e) {
+        console.error("LocalStorage save error:", e);
+      }
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    function Panel({ title, children, right }) {
+      return (
+        <div className="rounded-3xl border border-white/10 bg-white/10 shadow-2xl backdrop-blur-xl">
+          <div className="flex items-center justify-between gap-3 border-b border-white/10 px-5 py-4">
+            <h2 className="text-base font-bold text-white">{title}</h2>
+            {right}
+          </div>
+          <div className="p-5">{children}</div>
+        </div>
+      );
+    }
+
+    function Field({ label, value, onChange, placeholder, type = "text", textarea = false }) {
+      return (
+        <label className="block">
+          <div className="mb-1 text-sm font-medium text-slate-200">{label}</div>
+          {textarea ? (
+            <textarea
+              value={value}
+              onChange={(e) => onChange(e.target.value)}
+              placeholder={placeholder}
+              rows="3"
+              className="w-full rounded-2xl border border-white/10 bg-slate-900/70 px-3 py-2 text-white outline-none transition placeholder:text-slate-400 focus:border-sky-400"
+            />
+          ) : (
+            <input
+              type={type}
+              value={value}
+              onChange={(e) => onChange(e.target.value)}
+              placeholder={placeholder}
+              className="w-full rounded-2xl border border-white/10 bg-slate-900/70 px-3 py-2 text-white outline-none transition placeholder:text-slate-400 focus:border-sky-400"
+            />
+          )}
+        </label>
+      );
+    }
+
+    function Select({ label, value, onChange, children }) {
+      return (
+        <label className="block">
+          <div className="mb-1 text-sm font-medium text-slate-200">{label}</div>
+          <select
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            className="w-full rounded-2xl border border-white/10 bg-slate-900/70 px-3 py-2 text-white outline-none transition focus:border-sky-400"
+          >
+            {children}
+          </select>
+        </label>
+      );
+    }
+
+    function Button({ children, onClick, variant = "primary", icon, type = "button", className = "" }) {
+      const styles =
+        variant === "secondary"
+          ? "border border-white/10 bg-white/5 text-white hover:bg-white/10"
+          : variant === "danger"
+          ? "bg-rose-600 text-white hover:bg-rose-700"
+          : "bg-sky-500 text-slate-950 hover:bg-sky-400";
+
+      return (
+        <button
+          type={type}
+          onClick={onClick}
+          className={`inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-2 text-sm font-bold transition ${styles} ${className}`}
+        >
+          {icon ? <span className="text-base">{icon}</span> : null}
+          {children}
+        </button>
+      );
+    }
+
+    function StatCard({ label, value, hint, accent }) {
+      return (
+        <div className="rounded-3xl border border-white/10 bg-white/10 p-4 shadow-xl backdrop-blur-xl">
+          <div className="text-sm text-slate-300">{label}</div>
+          <div className={`mt-1 text-3xl font-black ${accent}`}>{value}</div>
+          {hint ? <div className="mt-1 text-xs text-slate-400">{hint}</div> : null}
+        </div>
+      );
+    }
+
+    function App() {
+      const [students, setStudents] = useState(() => safeParse(LS_KEYS.students, []));
+      const [teachers, setTeachers] = useState(() => safeParse(LS_KEYS.teachers, []));
+      const [classes, setClasses] = useState(() => safeParse(LS_KEYS.classes, []));
+      const [attendance, setAttendance] = useState(() => safeParse(LS_KEYS.attendance, []));
+      const [fees, setFees] = useState(() => safeParse(LS_KEYS.fees, []));
+      const [users, setUsers] = useState(() => {
+        const saved = safeParse(LS_KEYS.users, null);
+        return Array.isArray(saved) && saved.length ? saved : defaultUsers;
+      });
+      const [session, setSession] = useState(() => safeParse(LS_KEYS.session, defaultSession));
+
+      const [tab, setTab] = useState("dashboard");
+
+      const [loginUser, setLoginUser] = useState("admin");
+      const [loginPass, setLoginPass] = useState("1234");
+
+      const [studentForm, setStudentForm] = useState(emptyStudent);
+      const [teacherForm, setTeacherForm] = useState(emptyTeacher);
+      const [classForm, setClassForm] = useState(emptyClass);
+      const [userForm, setUserForm] = useState(emptyUser);
+
+      const [selectedClassForAttendance, setSelectedClassForAttendance] = useState("");
+      const [attendanceDate, setAttendanceDate] = useState(new Date().toISOString().slice(0, 10));
+
+      const [search, setSearch] = useState("");
+      const [filterClass, setFilterClass] = useState("");
+
+      const [feeStudentId, setFeeStudentId] = useState("");
+      const [feeAmount, setFeeAmount] = useState("");
+      const [feeMonth, setFeeMonth] = useState(new Date().toISOString().slice(0, 7));
+      const [feeNote, setFeeNote] = useState("");
+
+      const [backupFileName, setBackupFileName] = useState("");
+
+      useEffect(() => saveLS(LS_KEYS.students, students), [students]);
+      useEffect(() => saveLS(LS_KEYS.teachers, teachers), [teachers]);
+      useEffect(() => saveLS(LS_KEYS.classes, classes), [classes]);
+      useEffect(() => saveLS(LS_KEYS.attendance, attendance), [attendance]);
+      useEffect(() => saveLS(LS_KEYS.fees, fees), [fees]);
+      useEffect(() => saveLS(LS_KEYS.users, users), [users]);
+      useEffect(() => saveLS(LS_KEYS.session, session), [session]);
+
+      const isAdmin = session.role === "admin";
+
+      const navTabs = useMemo(() => {
+        const base = [
+          { id: "dashboard", label: "Dashboard", emoji: "🏠" },
+          { id: "students", label: "Students", emoji: "🎓" },
+          { id: "teachers", label: "Teachers", emoji: "👩‍🏫" },
+          { id: "classes", label: "Classes", emoji: "🏫" },
+          { id: "attendance", label: "Attendance", emoji: "✅" },
+          { id: "fees", label: "Fees", emoji: "💰" },
+          { id: "reports", label: "Reports", emoji: "📈" },
+        ];
+        if (isAdmin) base.push({ id: "users", label: "Users", emoji: "🔐" });
+        return base;
+      }, [isAdmin]);
+
+      useEffect(() => {
+        if (!navTabs.some((t) => t.id === tab)) setTab("dashboard");
+      }, [navTabs, tab]);
+
+      const classNameById = (id) => classes.find((c) => c.id === id)?.name || "—";
+      const teacherNameById = (id) => teachers.find((t) => t.id === id)?.name || "—";
+      const studentNameById = (id) => students.find((s) => s.id === id)?.name || "—";
+
+      const activeClassStudents = useMemo(
+        () => students.filter((s) => s.classId === selectedClassForAttendance),
+        [students, selectedClassForAttendance]
+      );
+
+      const filteredStudents = useMemo(() => {
+        const q = search.trim().toLowerCase();
+        return students.filter((s) => {
+          const text =
+            `${s.name || ""} ${s.grade || ""} ${s.phone || ""} ${s.guardian || ""} ${s.address || ""}`.toLowerCase();
+          const matchesText = !q || text.includes(q);
+          const matchesClass = !filterClass || s.classId === filterClass;
+          return matchesText && matchesClass;
+        });
+      }, [students, search, filterClass]);
+
+      const totalPaid = useMemo(
+        () => fees.reduce((sum, f) => sum + Number(f.amount || 0), 0),
+        [fees]
+      );
+
+      const monthlyTotal = useMemo(
+        () => fees.filter((f) => f.month === feeMonth).reduce((sum, f) => sum + Number(f.amount || 0), 0),
+        [fees, feeMonth]
+      );
+
+      const presentToday = useMemo(
+        () => attendance.filter((a) => a.date === attendanceDate && a.status === "Present").length,
+        [attendance, attendanceDate]
+      );
+
+      const absentToday = useMemo(
+        () => attendance.filter((a) => a.date === attendanceDate && a.status === "Absent").length,
+        [attendance, attendanceDate]
+      );
+
+      const attendanceRate = useMemo(() => {
+        const records = attendance.filter((a) => a.date === attendanceDate);
+        if (!records.length) return 0;
+        const present = records.filter((r) => r.status === "Present").length;
+        return Math.round((present / records.length) * 100);
+      }, [attendance, attendanceDate]);
+
+      const attendanceSummaryByStudent = (studentId) => {
+        const records = attendance.filter((a) => a.studentId === studentId);
+        return {
+          present: records.filter((r) => r.status === "Present").length,
+          absent: records.filter((r) => r.status === "Absent").length,
+          total: records.length,
+        };
+      };
+
+      const feeSummaryByStudent = (studentId) =>
+        fees.filter((f) => f.studentId === studentId).reduce((sum, r) => sum + Number(r.amount || 0), 0);
+
+      const attendancePercentByStudent = (studentId) => {
+        const s = attendanceSummaryByStudent(studentId);
+        if (!s.total) return 0;
+        return Math.round((s.present / s.total) * 100);
+      };
+
+      const topAttendanceStudents = useMemo(() => {
+        return [...students]
+          .map((s) => ({
+            ...s,
+            summary: attendanceSummaryByStudent(s.id),
+          }))
+          .sort((a, b) => b.summary.present - a.summary.present)
+          .slice(0, 5);
+      }, [students, attendance]);
+
+      const topFeeStudents = useMemo(() => {
+        return [...students]
+          .map((s) => ({
+            ...s,
+            total: feeSummaryByStudent(s.id),
+          }))
+          .sort((a, b) => b.total - a.total)
+          .slice(0, 5);
+      }, [students, fees]);
+
+      const classStats = useMemo(() => {
+        return classes.map((c) => {
+          const clsStudents = students.filter((s) => s.classId === c.id);
+          return {
+            ...c,
+            studentCount: clsStudents.length,
+            teacherName: teacherNameById(c.teacherId),
+          };
+        });
+      }, [classes, students, teachers]);
+
+      function login() {
+        const found = users.find(
+          (u) =>
+            u.username.trim().toLowerCase() === loginUser.trim().toLowerCase() &&
+            u.password === loginPass
+        );
+
+        if (!found) {
+          alert("Invalid username or password");
+          return;
+        }
+
+        setSession({
+          loggedIn: true,
+          username: found.username,
+          role: found.role,
+          name: found.name || found.username,
+        });
+      }
+
+      function logout() {
+        setSession(defaultSession);
+        setTab("dashboard");
+      }
+
+      function saveStudent() {
+        if (!studentForm.name.trim()) return alert("Student name is required");
+        const next = {
+          ...studentForm,
+          id: studentForm.id || uid("STU"),
+        };
+
+        setStudents((prev) => {
+          const exists = prev.some((s) => s.id === next.id);
+          return exists ? prev.map((s) => (s.id === next.id ? next : s)) : [next, ...prev];
+        });
+        setStudentForm(emptyStudent);
+      }
+
+      function saveTeacher() {
+        if (!teacherForm.name.trim()) return alert("Teacher name is required");
+        const next = {
+          ...teacherForm,
+          id: teacherForm.id || uid("TCH"),
+        };
+
+        setTeachers((prev) => {
+          const exists = prev.some((t) => t.id === next.id);
+          return exists ? prev.map((t) => (t.id === next.id ? next : t)) : [next, ...prev];
+        });
+        setTeacherForm(emptyTeacher);
+      }
+
+      function saveClass() {
+        if (!classForm.name.trim()) return alert("Class name is required");
+        const next = {
+          ...classForm,
+          id: classForm.id || uid("CLS"),
+        };
+
+        setClasses((prev) => {
+          const exists = prev.some((c) => c.id === next.id);
+          return exists ? prev.map((c) => (c.id === next.id ? next : c)) : [next, ...prev];
+        });
+        setClassForm(emptyClass);
+      }
+
+      function saveUser() {
+        if (!userForm.username.trim()) return alert("Username is required");
+        if (!userForm.password.trim()) return alert("Password is required");
+        if (!userForm.name.trim()) return alert("Name is required");
+
+        const next = {
+          ...userForm,
+          id: userForm.id || uid("USR"),
+          username: userForm.username.trim(),
+          password: userForm.password.trim(),
+          name: userForm.name.trim(),
+        };
+
+        setUsers((prev) => {
+          const exists = prev.some((u) => u.id === next.id);
+          return exists ? prev.map((u) => (u.id === next.id ? next : u)) : [next, ...prev];
+        });
+        setUserForm(emptyUser);
+      }
+
+      function deleteStudent(id) {
+        if (!window.confirm("Delete this student?")) return;
+        setStudents((prev) => prev.filter((s) => s.id !== id));
+        setAttendance((prev) => prev.filter((a) => a.studentId !== id));
+        setFees((prev) => prev.filter((f) => f.studentId !== id));
+      }
+
+      function deleteTeacher(id) {
+        if (!window.confirm("Delete this teacher?")) return;
+        setTeachers((prev) => prev.filter((t) => t.id !== id));
+        setClasses((prev) => prev.map((c) => (c.teacherId === id ? { ...c, teacherId: "" } : c)));
+      }
+
+      function deleteClass(id) {
+        if (!window.confirm("Delete this class?")) return;
+        setClasses((prev) => prev.filter((c) => c.id !== id));
+        setStudents((prev) => prev.map((s) => (s.classId === id ? { ...s, classId: "" } : s)));
+        setAttendance((prev) => prev.filter((a) => a.classId !== id));
+      }
+
+      function deleteUser(id) {
+        const target = users.find((u) => u.id === id);
+        if (!target) return;
+        if (target.username === session.username) return alert("You cannot delete the user currently logged in.");
+        if (!window.confirm(`Delete user ${target.username}?`)) return;
+        setUsers((prev) => prev.filter((u) => u.id !== id));
+      }
+
+      function markAttendance(studentId, status) {
+        const recordId = `${attendanceDate}_${studentId}`;
+        const next = {
+          recordId,
+          date: attendanceDate,
+          studentId,
+          classId: selectedClassForAttendance,
+          status,
+        };
+
+        setAttendance((prev) => {
+          const exists = prev.some((a) => a.recordId === recordId);
+          return exists ? prev.map((a) => (a.recordId === recordId ? next : a)) : [next, ...prev];
+        });
+      }
+
+      function markAllPresent() {
+        if (!selectedClassForAttendance) return alert("Select a class first");
+        setAttendance((prev) => {
+          const map = new Map(prev.map((a) => [a.recordId, a]));
+          activeClassStudents.forEach((s) => {
+            const recordId = `${attendanceDate}_${s.id}`;
+            map.set(recordId, {
+              recordId,
+              date: attendanceDate,
+              studentId: s.id,
+              classId: selectedClassForAttendance,
+              status: "Present",
+            });
           });
-          return response;
-        })
-        .catch(() => caches.match("./index.html"));
-    })
-  );
-});
+          return Array.from(map.values());
+        });
+      }
+
+      function clearAttendanceForDate() {
+        if (!window.confirm("Clear attendance for this date?")) return;
+        setAttendance((prev) => prev.filter((a) => a.date !== attendanceDate));
+      }
+
+      function saveFee() {
+        if (!feeStudentId) return alert("Select a student");
+        if (!feeAmount || Number(feeAmount) <= 0) return alert("Enter valid amount");
+
+        const student = students.find((s) => s.id === feeStudentId);
+        setFees((prev) => [
+          {
+            id: uid("FEE"),
+            studentId: feeStudentId,
+            studentName: student?.name || "Unknown",
+            amount: Number(feeAmount),
+            month: feeMonth,
+            note: feeNote,
+            date: new Date().toISOString().slice(0, 10),
+          },
+          ...prev,
+        ]);
+
+        setFeeAmount("");
+        setFeeNote("");
+      }
+
+      function printStudentCard(student) {
+        const w = window.open("", "_blank", "width=900,height=650");
+        if (!w) return;
+
+        w.document.write(`
+          <html>
+            <head>
+              <title>Student ID Card</title>
+              <style>
+                body{font-family:Arial,sans-serif;padding:24px;background:#0f172a;color:#0f172a}
+                .wrap{max-width:420px;margin:0 auto}
+                .card{background:#fff;border-radius:24px;padding:20px;box-shadow:0 20px 50px rgba(0,0,0,.25);overflow:hidden}
+                .head{background:linear-gradient(135deg,#0f172a,#1e293b);color:#fff;padding:18px;border-radius:18px;text-align:center;margin-bottom:18px}
+                .photo{width:120px;height:120px;border-radius:22px;background:#e2e8f0;display:block;margin:0 auto 14px;object-fit:cover}
+                .row{margin:10px 0;font-size:15px;color:#0f172a}
+                .label{font-weight:bold}
+                .footer{margin-top:14px;font-size:12px;color:#64748b;text-align:center}
+              </style>
+            </head>
+            <body>
+              <div class="wrap">
+                <div class="card">
+                  <div class="head">
+                    <div style="font-size:20px;font-weight:800">ADM Narammala</div>
+                    <div style="font-size:13px;opacity:.9">Student Identity Card</div>
+                  </div>
+                  ${
+                    student.photo
+                      ? `<img class="photo" src="${escapeHtml(student.photo)}" alt="photo" />`
+                      : `<div class="photo"></div>`
+                  }
+                  <div class="row"><span class="label">Name:</span> ${escapeHtml(student.name || "—")}</div>
+                  <div class="row"><span class="label">ID:</span> ${escapeHtml(student.id || "—")}</div>
+                  <div class="row"><span class="label">Grade:</span> ${escapeHtml(student.grade || "—")}</div>
+                  <div class="row"><span class="label">Class:</span> ${escapeHtml(classNameById(student.classId))}</div>
+                  <div class="row"><span class="label">Guardian:</span> ${escapeHtml(student.guardian || "—")}</div>
+                  <div class="row"><span class="label">Phone:</span> ${escapeHtml(student.phone || "—")}</div>
+                  <div class="footer">Keep this card during class time.</div>
+                </div>
+              </div>
+            </body>
+          </html>
+        `);
+
+        w.document.close();
+        w.focus();
+        w.print();
+      }
+
+      function exportBackup() {
+        const payload = {
+          students,
+          teachers,
+          classes,
+          attendance,
+          fees,
+          users,
+          session,
+          exportedAt: new Date().toISOString(),
+        };
+
+        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `adm_backup_${new Date().toISOString().slice(0, 10)}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+
+      function importBackup(file) {
+        if (!file) return;
+        const reader = new FileReader();
+
+        reader.onload = (e) => {
+          try {
+            const data = JSON.parse(String(e.target.result || "{}"));
+
+            setStudents(Array.isArray(data.students) ? data.students : []);
+            setTeachers(Array.isArray(data.teachers) ? data.teachers : []);
+            setClasses(Array.isArray(data.classes) ? data.classes : []);
+            setAttendance(Array.isArray(data.attendance) ? data.attendance : []);
+            setFees(Array.isArray(data.fees) ? data.fees : []);
+            setUsers(Array.isArray(data.users) && data.users.length ? data.users : defaultUsers);
+
+            if (data.session) setSession(data.session);
+            setBackupFileName(file.name);
+
+            alert("Backup imported successfully");
+          } catch {
+            alert("Invalid backup file");
+          }
+        };
+
+        reader.readAsText(file);
+      }
+
+      function resetAllData() {
+        if (!window.confirm("Reset all app data? Users will be restored to default accounts.")) return;
+
+        setStudents([]);
+        setTeachers([]);
+        setClasses([]);
+        setAttendance([]);
+        setFees([]);
+        setUsers(defaultUsers);
+        setSession(defaultSession);
+
+        setStudentForm(emptyStudent);
+        setTeacherForm(emptyTeacher);
+        setClassForm(emptyClass);
+        setUserForm(emptyUser);
+        setSelectedClassForAttendance("");
+        setSearch("");
+        setFilterClass("");
+        setFeeStudentId("");
+        setFeeAmount("");
+        setFeeMonth(new Date().toISOString().slice(0, 7));
+        setFeeNote("");
+
+        localStorage.removeItem(LS_KEYS.students);
+        localStorage.removeItem(LS_KEYS.teachers);
+        localStorage.removeItem(LS_KEYS.classes);
+        localStorage.removeItem(LS_KEYS.attendance);
+        localStorage.removeItem(LS_KEYS.fees);
+        localStorage.removeItem(LS_KEYS.users);
+        localStorage.removeItem(LS_KEYS.session);
+      }
+
+      const managedUsers = isAdmin ? users : users.filter((u) => u.role === "teacher");
+
+      if (!session.loggedIn) {
+        return (
+          <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 px-4 py-10 text-white">
+            <div className="pointer-events-none fixed left-0 top-0 h-80 w-80 rounded-full bg-sky-500/20 blur-3xl"></div>
+            <div className="pointer-events-none fixed bottom-0 right-0 h-80 w-80 rounded-full bg-violet-500/20 blur-3xl"></div>
+
+            <div className="mx-auto flex min-h-[calc(100vh-5rem)] max-w-md items-center">
+              <div className="w-full rounded-3xl border border-white/10 bg-white/10 p-6 shadow-2xl backdrop-blur-xl">
+                <div className="mb-6 text-center">
+                  <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-sky-400 text-slate-950 text-2xl font-black">
+                    A
+                  </div>
+                  <h1 className="text-3xl font-black">ADM Narammala</h1>
+                  <p className="mt-2 text-sm text-slate-300">Class Management System</p>
+                </div>
+
+                <div className="space-y-4">
+                  <Field label="Username" value={loginUser} onChange={setLoginUser} placeholder="admin / admin2 / teacher" />
+                  <Field label="Password" value={loginPass} onChange={setLoginPass} placeholder="1234" type="password" />
+                  <Button onClick={login} className="w-full">Login</Button>
+
+                  <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
+                    Demo accounts: <span className="font-bold text-white">admin / 1234</span>,{" "}
+                    <span className="font-bold text-white">admin2 / 1234</span>,{" "}
+                    <span className="font-bold text-white">teacher / 1234</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 text-white">
+          <div className="pointer-events-none fixed left-0 top-0 h-80 w-80 rounded-full bg-sky-500/20 blur-3xl"></div>
+          <div className="pointer-events-none fixed right-0 top-1/3 h-80 w-80 rounded-full bg-violet-500/20 blur-3xl"></div>
+          <div className="pointer-events-none fixed bottom-0 left-1/3 h-72 w-72 rounded-full bg-emerald-500/10 blur-3xl"></div>
+
+          <div className="relative mx-auto max-w-7xl px-4 py-4 md:p-6 pb-24 md:pb-6">
+            <header className="mb-6 rounded-3xl border border-white/10 bg-white/10 p-5 shadow-2xl backdrop-blur-xl">
+              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-bold uppercase tracking-[0.25em] text-slate-200">
+                    <span className="text-sky-300">■</span> ADM Narammala
+                  </div>
+                  <h1 className="mt-3 text-3xl font-black md:text-4xl">Class Management System</h1>
+                  <p className="mt-2 max-w-2xl text-sm text-slate-300">
+                    Student registration, teacher management, class setup, attendance, fees, reports, backup, and ID cards.
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="secondary" onClick={exportBackup} icon="⬇️">Export Backup</Button>
+                  <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-bold text-white transition hover:bg-white/10">
+                    <span>⬆️</span> Import Backup
+                    <input
+                      type="file"
+                      accept="application/json"
+                      className="hidden"
+                      onChange={(e) => importBackup(e.target.files?.[0])}
+                    />
+                  </label>
+                  <Button variant="secondary" onClick={logout} icon="🚪">Logout</Button>
+                  <Button variant="danger" onClick={resetAllData} icon="🗑️">Reset Data</Button>
+                </div>
+              </div>
+
+              <div className="mt-4 flex flex-wrap gap-2 text-sm">
+                <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-slate-200">
+                  Logged in as <b className="text-white">{session.name || session.username}</b>
+                </span>
+                <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-slate-200">
+                  Role: <b className="text-white">{session.role}</b>
+                </span>
+              </div>
+            </header>
+
+            <div className="grid gap-4 md:grid-cols-4">
+              <StatCard label="Students" value={students.length} hint="registered records" accent="text-sky-300" />
+              <StatCard label="Teachers" value={teachers.length} hint="staff records" accent="text-emerald-300" />
+              <StatCard label="Classes" value={classes.length} hint="class rooms" accent="text-violet-300" />
+              <StatCard label="Fees Collected" value={`LKR ${totalPaid.toLocaleString()}`} hint="all time" accent="text-amber-300" />
+            </div>
+
+            <div className="mt-6 grid gap-4 md:grid-cols-[260px_1fr]">
+              <aside className="hidden rounded-3xl border border-white/10 bg-white/10 p-3 shadow-2xl backdrop-blur-xl md:block">
+                <nav className="space-y-1">
+                  {navTabs.map((item) => (
+                    <button
+                      key={item.id}
+                      onClick={() => setTab(item.id)}
+                      className={`flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm font-bold transition ${
+                        tab === item.id ? "bg-white text-slate-950" : "text-slate-200 hover:bg-white/10"
+                      }`}
+                    >
+                      <span>{item.emoji}</span>
+                      {item.label}
+                    </button>
+                  ))}
+                </nav>
+              </aside>
+
+              <main className="space-y-6">
+                {tab === "dashboard" && (
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    <Panel title="Quick Overview">
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <div className="rounded-3xl bg-slate-950/70 p-4">
+                          <div className="text-sm text-slate-300">Present Today</div>
+                          <div className="mt-1 text-3xl font-black text-emerald-300">{presentToday}</div>
+                        </div>
+                        <div className="rounded-3xl bg-slate-950/70 p-4">
+                          <div className="text-sm text-slate-300">Absent Today</div>
+                          <div className="mt-1 text-3xl font-black text-rose-300">{absentToday}</div>
+                        </div>
+                        <div className="rounded-3xl bg-slate-950/70 p-4 sm:col-span-2">
+                          <div className="text-sm text-slate-300">Attendance Rate ({attendanceDate})</div>
+                          <div className="mt-1 text-3xl font-black text-sky-300">{attendanceRate}%</div>
+                          <div className="mt-3 h-2 rounded-full bg-white/10">
+                            <div
+                              className="h-2 rounded-full bg-sky-400"
+                              style={{ width: `${attendanceRate}%` }}
+                            />
+                          </div>
+                        </div>
+                        <div className="rounded-3xl bg-slate-950/70 p-4 sm:col-span-2">
+                          <div className="text-sm text-slate-300">Monthly Fee Total ({feeMonth})</div>
+                          <div className="mt-1 text-3xl font-black text-amber-300">LKR {monthlyTotal.toLocaleString()}</div>
+                        </div>
+                      </div>
+                    </Panel>
+
+                    <Panel title="Search Students">
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <Field
+                          label="Search by name, grade, phone, guardian"
+                          value={search}
+                          onChange={setSearch}
+                          placeholder="Type to search..."
+                        />
+                        <Select label="Filter by class" value={filterClass} onChange={setFilterClass}>
+                          <option value="">All classes</option>
+                          {classes.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.name}
+                            </option>
+                          ))}
+                        </Select>
+                      </div>
+
+                      <div className="mt-4 space-y-3">
+                        {filteredStudents.slice(0, 6).map((s) => {
+                          const att = attendanceSummaryByStudent(s.id);
+                          return (
+                            <div key={s.id} className="rounded-3xl border border-white/10 bg-slate-950/60 p-4">
+                              <div className="flex items-start justify-between gap-3">
+                                <div>
+                                  <div className="font-bold text-white">{s.name}</div>
+                                  <div className="text-sm text-slate-300">
+                                    Grade {s.grade || "—"} · {classNameById(s.classId)}
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => printStudentCard(s)}
+                                  className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-bold text-white hover:bg-white/10"
+                                >
+                                  Print Card
+                                </button>
+                              </div>
+                              <div className="mt-3 text-xs text-slate-300">
+                                Attendance: {att.present} present / {att.absent} absent · Fees: LKR {feeSummaryByStudent(s.id).toLocaleString()}
+                              </div>
+                            </div>
+                          );
+                        })}
+
+                        {filteredStudents.length === 0 && (
+                          <div className="rounded-3xl border border-dashed border-white/15 bg-slate-950/50 p-4 text-sm text-slate-300">
+                            No matching students found.
+                          </div>
+                        )}
+                      </div>
+                    </Panel>
+                  </div>
+                )}
+
+                {tab === "students" && (
+                  <Panel title="Student Registration">
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <Field label="Full Name" value={studentForm.name} onChange={(v) => setStudentForm({ ...studentForm, name: v })} placeholder="Student name" />
+                        <Field label="Grade" value={studentForm.grade} onChange={(v) => setStudentForm({ ...studentForm, grade: v })} placeholder="10 / 11 / A/L" />
+                        <Field label="Phone" value={studentForm.phone} onChange={(v) => setStudentForm({ ...studentForm, phone: v })} placeholder="07XXXXXXXX" />
+                        <Field label="Guardian" value={studentForm.guardian} onChange={(v) => setStudentForm({ ...studentForm, guardian: v })} placeholder="Parent / guardian" />
+                        <Field label="Address" value={studentForm.address} onChange={(v) => setStudentForm({ ...studentForm, address: v })} placeholder="Address" textarea />
+                        <Field label="Photo URL" value={studentForm.photo} onChange={(v) => setStudentForm({ ...studentForm, photo: v })} placeholder="Optional image URL" />
+                        <Select label="Class" value={studentForm.classId} onChange={(v) => setStudentForm({ ...studentForm, classId: v })}>
+                          <option value="">Select class</option>
+                          {classes.map((c) => (
+                            <option key={c.id} value={c.id}>{c.name}</option>
+                          ))}
+                        </Select>
+                      </div>
+
+                      <div className="flex flex-col justify-between gap-4 rounded-3xl bg-slate-950/70 p-4">
+                        <div>
+                          <div className="text-sm text-slate-300">Saved Student ID</div>
+                          <div className="mt-2 rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200">
+                            {studentForm.id || "Will be generated automatically"}
+                          </div>
+                          <p className="mt-3 text-sm text-slate-300">
+                            Add or edit student details here. Data saves automatically in this browser.
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <Button onClick={saveStudent} icon="➕">Save Student</Button>
+                          <Button variant="secondary" onClick={() => setStudentForm(emptyStudent)}>Clear</Button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-6 overflow-hidden rounded-3xl border border-white/10">
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-white/10 text-sm">
+                          <thead className="bg-white/5 text-left text-slate-200">
+                            <tr>
+                              <th className="px-4 py-3">Name</th>
+                              <th className="px-4 py-3">Grade</th>
+                              <th className="px-4 py-3">Class</th>
+                              <th className="px-4 py-3">Phone</th>
+                              <th className="px-4 py-3">Guardian</th>
+                              <th className="px-4 py-3">Attendance</th>
+                              <th className="px-4 py-3">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-white/5 bg-slate-950/40">
+                            {students.map((s) => {
+                              const att = attendanceSummaryByStudent(s.id);
+                              return (
+                                <tr key={s.id} className="text-slate-100">
+                                  <td className="px-4 py-3 font-medium">{s.name}</td>
+                                  <td className="px-4 py-3">{s.grade || "—"}</td>
+                                  <td className="px-4 py-3">{classNameById(s.classId)}</td>
+                                  <td className="px-4 py-3">{s.phone || "—"}</td>
+                                  <td className="px-4 py-3">{s.guardian || "—"}</td>
+                                  <td className="px-4 py-3 text-xs text-slate-300">
+                                    P:{att.present} A:{att.absent}
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <div className="flex flex-wrap gap-2">
+                                      <Button variant="secondary" onClick={() => setStudentForm(s)}>Edit</Button>
+                                      <Button variant="secondary" onClick={() => printStudentCard(s)}>Card</Button>
+                                      <Button variant="danger" onClick={() => deleteStudent(s.id)}>Delete</Button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                            {students.length === 0 && (
+                              <tr>
+                                <td className="px-4 py-6 text-center text-slate-300" colSpan={7}>
+                                  No students added yet.
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </Panel>
+                )}
+
+                {tab === "teachers" && (
+                  <Panel title="Teacher Registration">
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <Field label="Full Name" value={teacherForm.name} onChange={(v) => setTeacherForm({ ...teacherForm, name: v })} placeholder="Teacher name" />
+                        <Field label="Subject" value={teacherForm.subject} onChange={(v) => setTeacherForm({ ...teacherForm, subject: v })} placeholder="ICT / Maths / English" />
+                        <Field label="Phone" value={teacherForm.phone} onChange={(v) => setTeacherForm({ ...teacherForm, phone: v })} placeholder="07XXXXXXXX" />
+                        <Field label="Email" value={teacherForm.email} onChange={(v) => setTeacherForm({ ...teacherForm, email: v })} placeholder="teacher@email.com" type="email" />
+                      </div>
+
+                      <div className="flex flex-col justify-between gap-4 rounded-3xl bg-slate-950/70 p-4">
+                        <div>
+                          <div className="text-sm text-slate-300">Saved Teacher ID</div>
+                          <div className="mt-2 rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200">
+                            {teacherForm.id || "Will be generated automatically"}
+                          </div>
+                          <p className="mt-3 text-sm text-slate-300">
+                            Add teachers and assign them to classes later.
+                          </p>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button onClick={saveTeacher} icon="➕">Save Teacher</Button>
+                          <Button variant="secondary" onClick={() => setTeacherForm(emptyTeacher)}>Clear</Button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-6 overflow-hidden rounded-3xl border border-white/10">
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-white/10 text-sm">
+                          <thead className="bg-white/5 text-left text-slate-200">
+                            <tr>
+                              <th className="px-4 py-3">Name</th>
+                              <th className="px-4 py-3">Subject</th>
+                              <th className="px-4 py-3">Phone</th>
+                              <th className="px-4 py-3">Email</th>
+                              <th className="px-4 py-3">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-white/5 bg-slate-950/40">
+                            {teachers.map((t) => (
+                              <tr key={t.id} className="text-slate-100">
+                                <td className="px-4 py-3 font-medium">{t.name}</td>
+                                <td className="px-4 py-3">{t.subject || "—"}</td>
+                                <td className="px-4 py-3">{t.phone || "—"}</td>
+                                <td className="px-4 py-3">{t.email || "—"}</td>
+                                <td className="px-4 py-3">
+                                  <div className="flex gap-2">
+                                    <Button variant="secondary" onClick={() => setTeacherForm(t)}>Edit</Button>
+                                    <Button variant="danger" onClick={() => deleteTeacher(t.id)}>Delete</Button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                            {teachers.length === 0 && (
+                              <tr>
+                                <td className="px-4 py-6 text-center text-slate-300" colSpan={5}>
+                                  No teachers added yet.
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </Panel>
+                )}
+
+                {tab === "classes" && (
+                  <Panel title="Class Setup">
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <Field label="Class Name" value={classForm.name} onChange={(v) => setClassForm({ ...classForm, name: v })} placeholder="ICT A / Grade 10" />
+                        <Field label="Grade" value={classForm.grade} onChange={(v) => setClassForm({ ...classForm, grade: v })} placeholder="10 / 11 / A/L" />
+                        <Select label="Teacher" value={classForm.teacherId} onChange={(v) => setClassForm({ ...classForm, teacherId: v })}>
+                          <option value="">Select teacher</option>
+                          {teachers.map((t) => (
+                            <option key={t.id} value={t.id}>{t.name}</option>
+                          ))}
+                        </Select>
+                        <Field label="Room" value={classForm.room} onChange={(v) => setClassForm({ ...classForm, room: v })} placeholder="Room number" />
+                        <Field label="Schedule" value={classForm.schedule} onChange={(v) => setClassForm({ ...classForm, schedule: v })} placeholder="Sun 7:30 AM - 10:00 AM" />
+                      </div>
+
+                      <div className="flex flex-col justify-between gap-4 rounded-3xl bg-slate-950/70 p-4">
+                        <div>
+                          <div className="text-sm text-slate-300">Saved Class ID</div>
+                          <div className="mt-2 rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200">
+                            {classForm.id || "Will be generated automatically"}
+                          </div>
+                          <p className="mt-3 text-sm text-slate-300">
+                            Assign teachers to classes and use them for attendance and student mapping.
+                          </p>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button onClick={saveClass} icon="➕">Save Class</Button>
+                          <Button variant="secondary" onClick={() => setClassForm(emptyClass)}>Clear</Button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                      {classes.map((c) => (
+                        <div key={c.id} className="rounded-3xl border border-white/10 bg-slate-950/60 p-4">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <div className="text-lg font-bold">{c.name}</div>
+                              <div className="text-sm text-slate-300">Grade {c.grade || "—"}</div>
+                            </div>
+                            <div className="rounded-full bg-white/10 px-3 py-1 text-xs font-bold text-slate-200">
+                              {c.room || "No room"}
+                            </div>
+                          </div>
+
+                          <div className="mt-4 space-y-2 text-sm text-slate-300">
+                            <div><span className="font-bold text-white">Teacher:</span> {teacherNameById(c.teacherId)}</div>
+                            <div><span className="font-bold text-white">Schedule:</span> {c.schedule || "—"}</div>
+                            <div><span className="font-bold text-white">Students:</span> {students.filter((s) => s.classId === c.id).length}</div>
+                          </div>
+
+                          <div className="mt-4 flex gap-2">
+                            <Button variant="secondary" onClick={() => setClassForm(c)}>Edit</Button>
+                            <Button variant="danger" onClick={() => deleteClass(c.id)}>Delete</Button>
+                          </div>
+                        </div>
+                      ))}
+
+                      {classes.length === 0 && (
+                        <div className="rounded-3xl border border-dashed border-white/15 bg-slate-950/50 p-6 text-sm text-slate-300">
+                          No classes added yet.
+                        </div>
+                      )}
+                    </div>
+                  </Panel>
+                )}
+
+                {tab === "attendance" && (
+                  <Panel
+                    title="Attendance"
+                    right={
+                      <div className="flex flex-wrap gap-2">
+                        <Button variant="secondary" onClick={markAllPresent}>Mark All Present</Button>
+                        <Button variant="danger" onClick={clearAttendanceForDate}>Clear Date</Button>
+                      </div>
+                    }
+                  >
+                    <div className="grid gap-4 lg:grid-cols-3">
+                      <Select label="Class" value={selectedClassForAttendance} onChange={setSelectedClassForAttendance}>
+                        <option value="">Select class</option>
+                        {classes.map((c) => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </Select>
+
+                      <Field label="Date" type="date" value={attendanceDate} onChange={setAttendanceDate} />
+
+                      <div className="rounded-3xl bg-slate-950/70 p-4">
+                        <div className="text-sm text-slate-300">Selected Class Students</div>
+                        <div className="mt-1 text-3xl font-black text-sky-300">{activeClassStudents.length}</div>
+                      </div>
+                    </div>
+
+                    <div className="mt-6 overflow-hidden rounded-3xl border border-white/10">
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-white/10 text-sm">
+                          <thead className="bg-white/5 text-left text-slate-200">
+                            <tr>
+                              <th className="px-4 py-3">Student</th>
+                              <th className="px-4 py-3">Grade</th>
+                              <th className="px-4 py-3">Attendance</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-white/5 bg-slate-950/40">
+                            {selectedClassForAttendance ? (
+                              activeClassStudents.map((s) => {
+                                const record = attendance.find((a) => a.date === attendanceDate && a.studentId === s.id);
+                                const status = record?.status || "";
+
+                                return (
+                                  <tr key={s.id} className="text-slate-100">
+                                    <td className="px-4 py-3 font-medium">{s.name}</td>
+                                    <td className="px-4 py-3">{s.grade || "—"}</td>
+                                    <td className="px-4 py-3">
+                                      <div className="flex flex-wrap gap-2">
+                                        <button
+                                          type="button"
+                                          onClick={() => markAttendance(s.id, "Present")}
+                                          className={`rounded-2xl px-3 py-2 text-sm font-bold transition ${
+                                            status === "Present"
+                                              ? "bg-emerald-500 text-slate-950"
+                                              : "border border-emerald-400/30 bg-emerald-500/10 text-emerald-300"
+                                          }`}
+                                        >
+                                          Present
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => markAttendance(s.id, "Absent")}
+                                          className={`rounded-2xl px-3 py-2 text-sm font-bold transition ${
+                                            status === "Absent"
+                                              ? "bg-rose-500 text-white"
+                                              : "border border-rose-400/30 bg-rose-500/10 text-rose-300"
+                                          }`}
+                                        >
+                                          Absent
+                                        </button>
+                                        <div className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-slate-200">
+                                          <span>✅</span> {status || "Not marked"}
+                                        </div>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                );
+                              })
+                            ) : (
+                              <tr>
+                                <td className="px-4 py-6 text-center text-slate-300" colSpan={3}>
+                                  Select a class to begin attendance marking.
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    <div className="mt-6 rounded-3xl bg-slate-950/70 p-4 text-sm text-slate-300">
+                      Attendance is saved automatically for the selected date. Re-open the same date to update marks.
+                    </div>
+                  </Panel>
+                )}
+
+                {tab === "fees" && (
+                  <Panel title="Fee Management">
+                    <div className="grid gap-4 lg:grid-cols-5">
+                      <Select label="Student" value={feeStudentId} onChange={setFeeStudentId}>
+                        <option value="">Select student</option>
+                        {students.map((s) => (
+                          <option key={s.id} value={s.id}>{s.name}</option>
+                        ))}
+                      </Select>
+
+                      <Field label="Amount" value={feeAmount} onChange={setFeeAmount} placeholder="0" type="number" />
+
+                      <Field label="Month" value={feeMonth} onChange={setFeeMonth} type="month" />
+
+                      <Field label="Note" value={feeNote} onChange={setFeeNote} placeholder="Optional note" />
+
+                      <div className="flex items-end">
+                        <Button onClick={saveFee} className="w-full">Save Fee</Button>
+                      </div>
+                    </div>
+
+                    <div className="mt-6 grid gap-4 md:grid-cols-3">
+                      <div className="rounded-3xl bg-slate-950/70 p-4">
+                        <div className="text-sm text-slate-300">This Month Total</div>
+                        <div className="mt-1 text-3xl font-black text-amber-300">LKR {monthlyTotal.toLocaleString()}</div>
+                      </div>
+                      <div className="rounded-3xl bg-slate-950/70 p-4">
+                        <div className="text-sm text-slate-300">Total Paid</div>
+                        <div className="mt-1 text-3xl font-black text-sky-300">LKR {totalPaid.toLocaleString()}</div>
+                      </div>
+                      <div className="rounded-3xl bg-slate-950/70 p-4">
+                        <div className="text-sm text-slate-300">Backup File</div>
+                        <div className="mt-1 text-sm font-bold text-white">{backupFileName || "No file imported"}</div>
+                      </div>
+                    </div>
+
+                    <div className="mt-6 overflow-hidden rounded-3xl border border-white/10">
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-white/10 text-sm">
+                          <thead className="bg-white/5 text-left text-slate-200">
+                            <tr>
+                              <th className="px-4 py-3">Student</th>
+                              <th className="px-4 py-3">Amount</th>
+                              <th className="px-4 py-3">Month</th>
+                              <th className="px-4 py-3">Date</th>
+                              <th className="px-4 py-3">Note</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-white/5 bg-slate-950/40">
+                            {fees.map((f) => (
+                              <tr key={f.id} className="text-slate-100">
+                                <td className="px-4 py-3 font-medium">{f.studentName}</td>
+                                <td className="px-4 py-3">LKR {Number(f.amount).toLocaleString()}</td>
+                                <td className="px-4 py-3">{f.month}</td>
+                                <td className="px-4 py-3">{f.date}</td>
+                                <td className="px-4 py-3">{f.note || "—"}</td>
+                              </tr>
+                            ))}
+                            {fees.length === 0 && (
+                              <tr>
+                                <td className="px-4 py-6 text-center text-slate-300" colSpan={5}>
+                                  No fee records saved yet.
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </Panel>
+                )}
+
+                {tab === "reports" && (
+                  <Panel title="Reports">
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      <div className="rounded-3xl border border-white/10 bg-slate-950/60 p-4">
+                        <div className="mb-3 font-bold text-white">Attendance Summary by Student</div>
+                        <div className="space-y-3">
+                          {students.slice(0, 10).map((s) => {
+                            const a = attendanceSummaryByStudent(s.id);
+                            const pct = attendancePercentByStudent(s.id);
+                            return (
+                              <div key={s.id} className="rounded-3xl bg-white/5 p-3">
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="font-bold text-white">{s.name}</div>
+                                  <div className="text-xs text-slate-300">{pct}%</div>
+                                </div>
+                                <div className="mt-2 text-sm text-slate-300">
+                                  Present: {a.present} · Absent: {a.absent} · Total: {a.total}
+                                </div>
+                                <div className="mt-2 h-2 rounded-full bg-white/10">
+                                  <div className="h-2 rounded-full bg-emerald-400" style={{ width: `${pct}%` }} />
+                                </div>
+                              </div>
+                            );
+                          })}
+                          {students.length === 0 && <div className="text-sm text-slate-300">No student data available.</div>}
+                        </div>
+                      </div>
+
+                      <div className="rounded-3xl border border-white/10 bg-slate-950/60 p-4">
+                        <div className="mb-3 font-bold text-white">Fee Summary by Student</div>
+                        <div className="space-y-3">
+                          {students.slice(0, 10).map((s) => (
+                            <div key={s.id} className="rounded-3xl bg-white/5 p-3">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="font-bold text-white">{s.name}</div>
+                                <div className="text-xs text-slate-300">LKR {feeSummaryByStudent(s.id).toLocaleString()}</div>
+                              </div>
+                              <div className="mt-2 text-sm text-slate-300">
+                                Attendance: {attendanceSummaryByStudent(s.id).present} present / {attendanceSummaryByStudent(s.id).absent} absent
+                              </div>
+                            </div>
+                          ))}
+                          {students.length === 0 && <div className="text-sm text-slate-300">No student data available.</div>}
+                        </div>
+                      </div>
+
+                      <div className="rounded-3xl border border-white/10 bg-slate-950/60 p-4 lg:col-span-2">
+                        <div className="mb-3 font-bold text-white">Top Attendance / Fee Students</div>
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <div className="rounded-3xl bg-white/5 p-4">
+                            <div className="mb-3 text-sm font-bold text-slate-200">Top Attendance</div>
+                            <div className="space-y-2">
+                              {topAttendanceStudents.map((s) => (
+                                <div key={s.id} className="flex items-center justify-between rounded-2xl bg-slate-950/60 px-3 py-2 text-sm">
+                                  <span>{s.name}</span>
+                                  <span className="text-slate-300">{s.summary.present} present</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="rounded-3xl bg-white/5 p-4">
+                            <div className="mb-3 text-sm font-bold text-slate-200">Top Fee Paid</div>
+                            <div className="space-y-2">
+                              {topFeeStudents.map((s) => (
+                                <div key={s.id} className="flex items-center justify-between rounded-2xl bg-slate-950/60 px-3 py-2 text-sm">
+                                  <span>{s.name}</span>
+                                  <span className="text-slate-300">LKR {s.total.toLocaleString()}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="rounded-3xl border border-white/10 bg-slate-950/60 p-4 lg:col-span-2">
+                        <div className="mb-3 font-bold text-white">Class Overview</div>
+                        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                          {classStats.map((c) => (
+                            <div key={c.id} className="rounded-3xl bg-white/5 p-4">
+                              <div className="font-bold text-white">{c.name}</div>
+                              <div className="mt-1 text-sm text-slate-300">Teacher: {c.teacherName}</div>
+                              <div className="mt-1 text-sm text-slate-300">Students: {c.studentCount}</div>
+                              <div className="mt-1 text-sm text-slate-300">Room: {c.room || "—"}</div>
+                              <div className="mt-1 text-sm text-slate-300">Schedule: {c.schedule || "—"}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </Panel>
+                )}
+
+                {tab === "users" && isAdmin && (
+                  <Panel title="User Management">
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <Field label="Name" value={userForm.name} onChange={(v) => setUserForm({ ...userForm, name: v })} placeholder="Admin 2 / Teacher 1" />
+                        <Field label="Username" value={userForm.username} onChange={(v) => setUserForm({ ...userForm, username: v })} placeholder="admin2 / teacher1" />
+                        <Field label="Password" value={userForm.password} onChange={(v) => setUserForm({ ...userForm, password: v })} placeholder="1234" type="password" />
+                        <Select label="Role" value={userForm.role} onChange={(v) => setUserForm({ ...userForm, role: v })}>
+                          <option value="admin">admin</option>
+                          <option value="teacher">teacher</option>
+                        </Select>
+                      </div>
+
+                      <div className="flex flex-col justify-between gap-4 rounded-3xl bg-slate-950/70 p-4">
+                        <div>
+                          <div className="text-sm text-slate-300">Create admin or teacher logins for future use.</div>
+                          <div className="mt-2 rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200">
+                            {userForm.id || "Will be generated automatically"}
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button onClick={saveUser}>Save User</Button>
+                          <Button variant="secondary" onClick={() => setUserForm(emptyUser)}>Clear</Button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-6 overflow-hidden rounded-3xl border border-white/10">
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-white/10 text-sm">
+                          <thead className="bg-white/5 text-left text-slate-200">
+                            <tr>
+                              <th className="px-4 py-3">Name</th>
+                              <th className="px-4 py-3">Username</th>
+                              <th className="px-4 py-3">Role</th>
+                              <th className="px-4 py-3">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-white/5 bg-slate-950/40">
+                            {managedUsers.map((u) => (
+                              <tr key={u.id || u.username} className="text-slate-100">
+                                <td className="px-4 py-3">{u.name || "—"}</td>
+                                <td className="px-4 py-3">{u.username}</td>
+                                <td className="px-4 py-3">{u.role}</td>
+                                <td className="px-4 py-3">
+                                  <div className="flex gap-2">
+                                    <Button variant="secondary" onClick={() => setUserForm(u)}>Edit</Button>
+                                    <Button variant="danger" onClick={() => deleteUser(u.id || "")}>Delete</Button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 rounded-3xl bg-slate-950/70 p-4 text-sm text-slate-300">
+                      Note: default accounts are restored when you use Reset Data.
+                    </div>
+                  </Panel>
+                )}
+              </main>
+            </div>
+          </div>
+
+          <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-white/10 bg-slate-950/90 backdrop-blur-xl md:hidden">
+            <div className="flex gap-2 overflow-x-auto px-3 py-3">
+              {navTabs.map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => setTab(item.id)}
+                  className={`min-w-[92px] rounded-2xl px-3 py-2 text-center text-xs font-bold transition ${
+                    tab === item.id ? "bg-white text-slate-950" : "bg-white/5 text-slate-200"
+                  }`}
+                >
+                  <div className="mb-1 text-base">{item.emoji}</div>
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("./sw.js").catch((err) => {
+          console.log("SW registration failed:", err);
+        });
+      });
+    }
+  </script>
+</body>
+</html>
